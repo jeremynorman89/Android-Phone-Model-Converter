@@ -3,9 +3,7 @@
 namespace App\Http\Livewire;
 
 use App\Phone;
-use Carbon\Carbon;
-use Illuminate\Support\Str;
-use League\Csv\AbstractCsv;
+use Illuminate\Support\Collection;
 use League\Csv\HTMLConverter;
 use League\Csv\Reader;
 use League\Csv\Writer;
@@ -22,15 +20,13 @@ class PhoneParser extends Component
 
     public $contents;
 
-    public $table;
-
     public function render()
     {
         return view('livewire.phone-parser', [
             'lastUpdate' => Phone::latest()->first()->updated_at->diffForHumans(),
             'contents' => $this->contents,
             'file' => $this->file,
-            'table' => $this->table,
+            'table' => $this->generateTable(),
         ]);
     }
 
@@ -40,37 +36,48 @@ class PhoneParser extends Component
             'file' => 'mimetypes:text/plain,text/csv', // 1MB Max
         ]);
 
-        $contents = $this->file->get();
+        $uploadedCsv = Reader::createFromString($this->file->get());
+        $generatedCsv = $this->prepareNewCsvBasedOnFile($uploadedCsv);
+        $phones = $this->getPhones();
 
-        $csv = Reader::createFromString($contents);
-        $delimiter = preg_quote($csv->getDelimiter(), '/');
+        $generatedCsv->addFormatter(function($record) use ($phones) {
+            return array_map(function($cell) use ($phones) {
+                return !empty($phones[$cell]) ? $phones[$cell] : $cell;
+            }, $record);
+        });
 
-        foreach (Phone::all() as $phone) {
-
-            if (!$phone->hasValidModelName()) continue;
-
-            $model = preg_quote($phone->model, '/');
-
-            $pattern = "(^|$delimiter)($model)($|$delimiter)";
-
-            $friendlyName = preg_replace(
-                '/[' . $csv->getEscape() . $csv->getEnclosure() . $csv->getDelimiter() . ']/',
-                '',
-                $phone->getFriendlyName()
-            );
-
-            $contents = preg_replace("/$pattern/m", "$1{$friendlyName}$3", $contents);
+        foreach ($uploadedCsv->getRecords() as $record) {
+            $generatedCsv->insertOne($record);
         }
 
-        $this->contents = $contents;
-
-        $this->createTable();
+        $this->contents = $generatedCsv->toString();
     }
 
-    private function createTable()
+    private function getPhones(): Collection
     {
-        $this->table = (new HTMLConverter())
-            ->convert(Reader::createFromString($this->contents)->getRecords());
+        return Phone::all()->filter(function($phone) {
+            return $phone->hasValidModelName();
+        })->pluck('friendly_name', 'model');
+    }
+
+    private function prepareNewCsvBasedOnFile(Reader $csv): Writer
+    {
+        $newCsv = Writer::createFromString();
+        $newCsv->setDelimiter($csv->getDelimiter());
+        $newCsv->setEnclosure($csv->getEnclosure());
+        $newCsv->setEscape($csv->getEscape());
+        return $newCsv;
+    }
+
+    private function generateTable()
+    {
+        if (empty($this->contents)) return null;
+
+        $reader = Reader::createFromString($this->contents);
+
+        return (new HTMLConverter())
+            ->table("table is-striped is-hoverable is-fullwidth")
+            ->convert($reader->getRecords());
     }
 
     public function download()

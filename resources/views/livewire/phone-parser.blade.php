@@ -31,7 +31,7 @@
                 </button>
             </div>
 
-            <div class="box">
+            <div class="table-container">
                 @if (!empty($table))
                     {!! $table !!}
                 @endif

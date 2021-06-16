@@ -20,12 +20,18 @@ class Phone extends Model
     {
         if (empty($this->model)) return false;
 
+        if (is_numeric($this->model)) return false;
+
         return true;
     }
 
-    public function getFriendlyName()
+    public function getFriendlyNameAttribute()
     {
-        return str_contains($this->marketing_name, $this->retail_branding)
+        if (empty($this->marketing_name)) {
+            return "{$this->retail_branding} {$this->device}";
+        }
+
+        return str_contains(strtolower($this->marketing_name), strtolower($this->retail_branding))
             ? $this->marketing_name
             : "{$this->retail_branding} {$this->marketing_name}";
     }
